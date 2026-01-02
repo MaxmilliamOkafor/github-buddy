@@ -72,6 +72,20 @@ body {
   50% { opacity: 0.5; }
 }
 
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes btn-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(247, 147, 30, 0.3); }
+  50% { box-shadow: 0 0 25px rgba(247, 147, 30, 0.6); }
+}
+
+.btn-animating {
+  animation: btn-glow 1s ease-in-out infinite;
+}
+
 .status-indicator.error .status-dot { background: #ff4757; animation: none; }
 .status-indicator.working .status-dot { background: #ffa502; animation: pulse 0.5s infinite; }
 
