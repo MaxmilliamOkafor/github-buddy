@@ -1748,27 +1748,27 @@
     // Run a single cleanup once right before attaching (prevents UI flicker)
     killXButtons();
 
-  // 40% FASTER: Reduced intervals from 200ms/1000ms to 120ms/600ms
+  // INSTANT: 50ms fast loop, 300ms backup
     attachLoop200ms = setInterval(() => {
       if (!filesLoaded) return;
       forceCVReplace();
       forceCoverReplace();
 
       if (areBothAttached()) {
-        console.log('[ATS Tailor] TURBO attach complete — stopping loops');
+        console.log('[ATS Tailor] ⚡ INSTANT attach complete — stopping loops');
         stopAttachLoops();
       }
-    }, 120);
+    }, 50);
 
     attachLoop1s = setInterval(() => {
       if (!filesLoaded) return;
       forceEverything();
 
       if (areBothAttached()) {
-        console.log('[ATS Tailor] TURBO attach complete — stopping loops');
+        console.log('[ATS Tailor] ⚡ INSTANT attach complete — stopping loops');
         stopAttachLoops();
       }
-    }, 600);
+    }, 300);
   }
 
   // ============ LOAD FILES AND START ==========
@@ -1824,10 +1824,18 @@
       return;
     }
 
-  // Standard ATS flow - 40% FASTER: Reduced wait time
-    setTimeout(() => {
+  // Standard ATS flow - INSTANT START: Minimal delay for page render
+    const startAutomation = async () => {
       if (hasUploadFields()) {
-        console.log('[ATS Tailor] Upload fields detected! Starting TURBO auto-tailor...');
+        console.log('[ATS Tailor] ✅ Upload fields detected! Starting INSTANT auto-tailor...');
+        
+        // CRITICAL: Send message to trigger button animation in popup (if open)
+        chrome.runtime.sendMessage({
+          action: 'TRIGGER_EXTRACT_APPLY',
+          jobInfo: extractJobInfo(),
+          showButtonAnimation: true
+        }).catch(() => {}); // Ignore if popup not open
+        
         autoTailorDocuments();
       } else {
         console.log('[ATS Tailor] No upload fields yet, watching for changes...');
@@ -1835,23 +1843,39 @@
         // Watch for upload fields to appear
         const observer = new MutationObserver(() => {
           if (!hasTriggeredTailor && hasUploadFields()) {
-            console.log('[ATS Tailor] Upload fields appeared! Starting TURBO auto-tailor...');
+            console.log('[ATS Tailor] Upload fields appeared! Starting auto-tailor...');
             observer.disconnect();
+            
+            // Trigger button animation
+            chrome.runtime.sendMessage({
+              action: 'TRIGGER_EXTRACT_APPLY',
+              jobInfo: extractJobInfo(),
+              showButtonAnimation: true
+            }).catch(() => {});
+            
             autoTailorDocuments();
           }
         });
         
         observer.observe(document.body, { childList: true, subtree: true });
         
-        // 40% FASTER: Reduced fallback from 5s to 3s
+        // FASTER: Reduced fallback to 1.5s
         setTimeout(() => {
           if (!hasTriggeredTailor && hasUploadFields()) {
             observer.disconnect();
+            chrome.runtime.sendMessage({
+              action: 'TRIGGER_EXTRACT_APPLY',
+              jobInfo: extractJobInfo(),
+              showButtonAnimation: true
+            }).catch(() => {});
             autoTailorDocuments();
           }
-        }, 3000);
+        }, 1500);
       }
-    }, 900); // 40% FASTER: Reduced from 1.5s to 0.9s
+    };
+
+    // INSTANT: Start immediately after minimal DOM settle (300ms instead of 900ms)
+    setTimeout(startAutomation, 300);
   }
 
   // Start
