@@ -115,60 +115,65 @@
     },
 
     // ============ GREENHOUSE-SPECIFIC × BUTTON KILLER ============
-    killGreenhouseXButtons() {
+    // CRITICAL FIX: Properly find and click X buttons to remove existing CV/Cover files
+    async killGreenhouseXButtons() {
       let removed = 0;
       const isGreenhouse = window.location.hostname.includes('greenhouse');
       
       console.log('[FileAttacher] 🎯 Platform:', isGreenhouse ? 'Greenhouse' : 'Generic ATS');
+      console.log('[FileAttacher] 🔍 Scanning for existing file attachments...');
 
-      // STEP 1: Greenhouse-specific removal (if on Greenhouse)
-      if (isGreenhouse) {
-        this.GREENHOUSE_REMOVE_SELECTORS.forEach(selector => {
-          try {
-            document.querySelectorAll(selector).forEach(btn => {
-              // Click the button
-              btn.click();
-              console.log('[FileAttacher] 🗑️ Greenhouse: Clicked', selector);
-              removed++;
-            });
-          } catch (e) {
-            // Selector may be invalid, skip
-          }
-        });
+      // STEP 1: Find ALL file attachment containers (CV and Cover Letter separately)
+      const fileContainers = this.findAllFileContainers();
+      console.log(`[FileAttacher] Found ${fileContainers.length} file containers`);
+
+      for (const container of fileContainers) {
+        const removed_here = await this.removeFileFromContainer(container);
+        if (removed_here) removed++;
       }
 
-      // STEP 2: Generic remove buttons (all platforms)
-      this.GENERIC_REMOVE_SELECTORS.forEach(selector => {
-        try {
-          document.querySelectorAll(selector).forEach(btn => {
-            if (this.isNearFileInput(btn)) {
-              btn.click();
-              console.log('[FileAttacher] 🗑️ Clicked remove button:', selector);
+      // STEP 2: Greenhouse-specific removal (if on Greenhouse)
+      if (isGreenhouse) {
+        for (const selector of this.GREENHOUSE_REMOVE_SELECTORS) {
+          try {
+            const buttons = document.querySelectorAll(selector);
+            for (const btn of buttons) {
+              if (btn.offsetParent === null) continue; // Skip hidden
+              await this.robustClick(btn, selector);
               removed++;
             }
-          });
-        } catch (e) {}
-      });
+          } catch (e) {}
+        }
+      }
 
-      // STEP 3: Click × / x / X / ✕ text buttons near file inputs
-      document.querySelectorAll('button, [role="button"], span.close, a.close').forEach(btn => {
-        const text = btn.textContent?.trim();
-        if (text === '×' || text === 'x' || text === 'X' || text === '✕' || text === '✖') {
-          if (this.isNearFileInput(btn)) {
-            try {
-              // Multiple click methods for robustness
-              btn.focus();
-              btn.click();
-              btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-              console.log('[FileAttacher] 🗑️ Clicked × button');
+      // STEP 3: Generic remove buttons (all platforms)
+      for (const selector of this.GENERIC_REMOVE_SELECTORS) {
+        try {
+          const buttons = document.querySelectorAll(selector);
+          for (const btn of buttons) {
+            if (this.isNearFileInput(btn) && btn.offsetParent !== null) {
+              await this.robustClick(btn, selector);
               removed++;
-            } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      }
+
+      // STEP 4: Click × / x / X / ✕ text buttons near file inputs
+      const xButtons = document.querySelectorAll('button, [role="button"], span.close, a.close, span, a');
+      for (const btn of xButtons) {
+        const text = btn.textContent?.trim();
+        if (text === '×' || text === 'x' || text === 'X' || text === '✕' || text === '✖' || text === '✗') {
+          if (this.isNearFileInput(btn) && btn.offsetParent !== null) {
+            await this.robustClick(btn, '× button');
+            removed++;
           }
         }
-      });
+      }
 
-      // STEP 4: Clear file inputs directly (DataTransfer method)
-      document.querySelectorAll('input[type="file"]').forEach(input => {
+      // STEP 5: Clear file inputs directly (DataTransfer method)
+      const fileInputs = document.querySelectorAll('input[type="file"]');
+      for (const input of fileInputs) {
         if (input.files && input.files.length > 0) {
           try {
             const dt = new DataTransfer();
@@ -178,26 +183,100 @@
             removed++;
           } catch (e) {}
         }
-      });
+      }
 
-      // STEP 5: Greenhouse - Click "Remove" text links
+      // STEP 6: Greenhouse - Click "Remove" text links
       if (isGreenhouse) {
-        document.querySelectorAll('a, span, div').forEach(el => {
+        const textLinks = document.querySelectorAll('a, span, div, button');
+        for (const el of textLinks) {
           const text = el.textContent?.trim().toLowerCase();
-          if (text === 'remove' || text === 'delete' || text === 'clear') {
-            if (this.isNearFileInput(el)) {
-              try {
-                el.click();
-                console.log('[FileAttacher] 🗑️ Clicked "Remove" text link');
-                removed++;
-              } catch (e) {}
-            }
+          if ((text === 'remove' || text === 'delete' || text === 'clear') && 
+              this.isNearFileInput(el) && el.offsetParent !== null) {
+            await this.robustClick(el, '"Remove" link');
+            removed++;
           }
-        });
+        }
       }
 
       console.log(`[FileAttacher] 🗑️ Total removed: ${removed} existing files`);
       return removed;
+    },
+
+    // Find all file upload containers on the page
+    findAllFileContainers() {
+      const containers = [];
+      const selectors = [
+        '[data-qa="file-upload"]',
+        '[data-qa-upload]',
+        '.attachment-container',
+        '.file-upload-container',
+        '[class*="upload" i]',
+        '[class*="attachment" i]',
+        '[class*="file" i]',
+        '.s-input-group',
+        '.field'
+      ];
+      
+      for (const selector of selectors) {
+        try {
+          document.querySelectorAll(selector).forEach(el => {
+            if (el.querySelector('input[type="file"]') || 
+                el.querySelector('[class*="filename" i]') ||
+                el.textContent?.match(/\.pdf|\.doc|\.docx/i)) {
+              if (!containers.includes(el)) {
+                containers.push(el);
+              }
+            }
+          });
+        } catch (e) {}
+      }
+      
+      return containers;
+    },
+
+    // Remove file from a specific container
+    async removeFileFromContainer(container) {
+      // Look for X button or remove link inside container
+      const removeSelectors = [
+        'button.close', 'button.remove', 
+        '[aria-label*="remove" i]', '[aria-label*="delete" i]',
+        '.remove', '.close', '.delete',
+        'span', 'button', 'a'
+      ];
+      
+      for (const selector of removeSelectors) {
+        const candidates = container.querySelectorAll(selector);
+        for (const el of candidates) {
+          const text = el.textContent?.trim();
+          if (text === '×' || text === 'x' || text === 'X' || text === '✕' || 
+              text === 'remove' || text === 'delete' || text === 'clear' ||
+              el.getAttribute('aria-label')?.toLowerCase().includes('remove')) {
+            if (el.offsetParent !== null) {
+              await this.robustClick(el, `remove button in container`);
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    },
+
+    // Robust click with multiple methods
+    async robustClick(el, description) {
+      console.log(`[FileAttacher] 🗑️ Clicking: ${description}`);
+      try {
+        el.focus();
+        el.click();
+      } catch (e) {}
+      try {
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      } catch (e) {}
+      try {
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      } catch (e) {}
+      // Small delay for DOM to update
+      await new Promise(r => setTimeout(r, 50));
     },
 
     // ============ CHECK IF ELEMENT IS NEAR A FILE INPUT ============
@@ -243,29 +322,36 @@
       });
     },
 
-    // ============ ATTACH FILES TO FORM (≤50ms) ============
+    // ============ ATTACH FILES TO FORM (≤50ms target, TURBO MODE) ============
     async attachFilesToForm(cvFile, coverFile, options = {}) {
       const startTime = performance.now();
-      console.log('[FileAttacher] 🔗 Starting GREENHOUSE-FIXED file attachment...');
+      const timings = { remove: 0, reveal: 0, cv: 0, cover: 0, sync: 0 };
+      console.log('[FileAttacher] 🔗 Starting TURBO file attachment...');
       
       const results = {
         cvAttached: false,
         coverAttached: false,
         existingFilesRemoved: 0,
         errors: [],
-        jobGenieSynced: false
+        jobGenieSynced: false,
+        timings: {}
       };
 
-      // STEP 1: Kill all existing × buttons (GREENHOUSE-SPECIFIC)
-      results.existingFilesRemoved = this.killGreenhouseXButtons();
+      // STEP 1: Kill all existing × buttons (GREENHOUSE-SPECIFIC) - ASYNC
+      const removeStart = performance.now();
+      results.existingFilesRemoved = await this.killGreenhouseXButtons();
+      timings.remove = performance.now() - removeStart;
       
-      // Small delay to let Greenhouse DOM update after removal
-      await new Promise(r => setTimeout(r, 50));
+      // Minimal delay to let DOM update after removal (reduced from 50ms)
+      await new Promise(r => setTimeout(r, 20));
       
       // STEP 2: Reveal hidden inputs
+      const revealStart = performance.now();
       this.revealHiddenInputs();
+      timings.reveal = performance.now() - revealStart;
 
       // STEP 3: Attach CV to CV field ONLY
+      const cvStart = performance.now();
       if (cvFile) {
         const attached = this.forceCVReplace(cvFile);
         if (attached) {
@@ -276,8 +362,10 @@
           results.errors.push('CV field not found');
         }
       }
+      timings.cv = performance.now() - cvStart;
 
       // STEP 4: Attach Cover Letter to Cover field ONLY
+      const coverStart = performance.now();
       if (coverFile) {
         const attached = this.forceCoverReplace(coverFile);
         if (attached) {
@@ -288,22 +376,32 @@
           results.errors.push('Cover Letter field not found');
         }
       }
+      timings.cover = performance.now() - coverStart;
 
-      // ASYNC: Job-Genie Pipeline Sync (non-blocking)
+      // ASYNC: Job-Genie Pipeline Sync (non-blocking, don't wait)
+      const syncStart = performance.now();
       if (options.syncJobGenie !== false) {
         this.syncWithJobGeniePipeline(cvFile, coverFile).then(synced => {
           results.jobGenieSynced = synced;
         }).catch(() => {});
       }
+      timings.sync = performance.now() - syncStart;
 
       // Store state
       this.pipelineState.lastAttachedFiles = { cvFile, coverFile };
       this.pipelineState.jobGenieReady = results.cvAttached || results.coverAttached;
 
-      const timing = performance.now() - startTime;
-      console.log(`[FileAttacher] ✅ Attachment complete in ${timing.toFixed(0)}ms (target: ${this.TIMING_TARGET}ms)`);
+      const totalTime = performance.now() - startTime;
+      results.timings = timings;
       
-      return { ...results, timing };
+      console.log(`[FileAttacher] ⏱️ TURBO Timing breakdown:
+        Remove existing: ${timings.remove.toFixed(0)}ms
+        Reveal inputs: ${timings.reveal.toFixed(0)}ms
+        Attach CV: ${timings.cv.toFixed(0)}ms
+        Attach Cover: ${timings.cover.toFixed(0)}ms
+        Total: ${totalTime.toFixed(0)}ms (target: ${this.TIMING_TARGET}ms)`);
+      
+      return { ...results, timing: totalTime };
     },
 
     // ============ FORCE CV REPLACE ============

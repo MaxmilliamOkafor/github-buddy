@@ -99,6 +99,13 @@
       
       // CERTIFICATIONS
       sections.certifications = parsed.certifications || '';
+      
+      // TECHNICAL PROFICIENCIES - CRITICAL: Include for PDF = Preview match
+      // This section contains soft skills like collaboration, problem-solving
+      sections.technicalProficiencies = parsed.technicalProficiencies || '';
+      
+      console.log('[PDFATSTurbo] formatCVForATS - Technical Proficiencies:', 
+        sections.technicalProficiencies ? sections.technicalProficiencies.substring(0, 80) : 'NONE');
 
       return sections;
     },
@@ -122,6 +129,7 @@
     },
 
     // ============ PARSE CV SECTIONS (INCLUDES TECHNICAL PROFICIENCIES) ============
+    // CRITICAL FIX: Ensure TECHNICAL PROFICIENCIES section is captured for PDF = Preview match
     parseCVSections(cvText) {
       if (!cvText) return {};
       
@@ -134,21 +142,60 @@
         technicalProficiencies: '' // CRITICAL: Include this section for PDF = Preview match
       };
 
-      const patterns = {
-        summary: /(?:PROFESSIONAL\s*SUMMARY|SUMMARY|PROFILE|OBJECTIVE)[\s:]*\n([\s\S]*?)(?=\n(?:EXPERIENCE|WORK|SKILLS|EDUCATION|CERTIFICATIONS|TECHNICAL\s*PROFICIENCIES|$))/i,
-        experience: /(?:EXPERIENCE|WORK\s*EXPERIENCE|EMPLOYMENT|PROFESSIONAL\s*EXPERIENCE)[\s:]*\n([\s\S]*?)(?=\n(?:SKILLS|EDUCATION|CERTIFICATIONS|TECHNICAL\s*PROFICIENCIES|$))/i,
-        skills: /(?:SKILLS|TECHNICAL\s*SKILLS|CORE\s*SKILLS)[\s:]*\n([\s\S]*?)(?=\n(?:EDUCATION|CERTIFICATIONS|TECHNICAL\s*PROFICIENCIES|$))/i,
-        education: /(?:EDUCATION|ACADEMIC)[\s:]*\n([\s\S]*?)(?=\n(?:CERTIFICATIONS|TECHNICAL\s*PROFICIENCIES|$))/i,
-        certifications: /(?:CERTIFICATIONS?|LICENSES?)[\s:]*\n([\s\S]*?)(?=\n(?:TECHNICAL\s*PROFICIENCIES|$))/i,
-        technicalProficiencies: /(?:TECHNICAL\s*PROFICIENCIES)[\s:]*\n([\s\S]*?)$/i
+      // IMPROVED: More robust section parsing using line-by-line approach
+      const lines = cvText.split('\n');
+      let currentSection = '';
+      let currentContent = [];
+      
+      const sectionHeaders = {
+        'PROFESSIONAL SUMMARY': 'summary',
+        'SUMMARY': 'summary',
+        'PROFILE': 'summary',
+        'OBJECTIVE': 'summary',
+        'EXPERIENCE': 'experience',
+        'WORK EXPERIENCE': 'experience',
+        'EMPLOYMENT': 'experience',
+        'PROFESSIONAL EXPERIENCE': 'experience',
+        'SKILLS': 'skills',
+        'TECHNICAL SKILLS': 'skills',
+        'CORE SKILLS': 'skills',
+        'EDUCATION': 'education',
+        'ACADEMIC': 'education',
+        'CERTIFICATIONS': 'certifications',
+        'LICENSES': 'certifications',
+        'TECHNICAL PROFICIENCIES': 'technicalProficiencies'
       };
-
-      for (const [section, pattern] of Object.entries(patterns)) {
-        const match = cvText.match(pattern);
-        if (match) {
-          sections[section] = match[1].trim();
+      
+      for (const line of lines) {
+        const trimmed = line.trim().toUpperCase().replace(/[:\s]+$/, '');
+        
+        if (sectionHeaders[trimmed]) {
+          // Save previous section content
+          if (currentSection && currentContent.length > 0) {
+            sections[currentSection] = currentContent.join('\n').trim();
+          }
+          currentSection = sectionHeaders[trimmed];
+          currentContent = [];
+        } else if (currentSection) {
+          currentContent.push(line);
         }
       }
+      
+      // Save last section
+      if (currentSection && currentContent.length > 0) {
+        sections[currentSection] = currentContent.join('\n').trim();
+      }
+      
+      // FALLBACK: Use regex for any missed sections (especially TECHNICAL PROFICIENCIES)
+      if (!sections.technicalProficiencies) {
+        const techProfMatch = cvText.match(/TECHNICAL\s*PROFICIENCIES[\s:]*\n?([\s\S]*?)(?=\n[A-Z]{3,}|$)/i);
+        if (techProfMatch) {
+          sections.technicalProficiencies = techProfMatch[1].trim();
+        }
+      }
+
+      console.log('[PDFATSTurbo] Parsed sections:', Object.keys(sections).filter(k => sections[k]));
+      console.log('[PDFATSTurbo] Technical Proficiencies content:', sections.technicalProficiencies?.substring(0, 100) || 'NONE');
 
       return sections;
     },
@@ -229,9 +276,17 @@
       }
       
       // TECHNICAL PROFICIENCIES (CRITICAL: Include for PDF = Preview match)
+      // This section contains soft skills like collaboration, problem-solving
       if (sections.technicalProficiencies) {
+        lines.push('');
         lines.push('TECHNICAL PROFICIENCIES');
-        lines.push(sections.technicalProficiencies);
+        // Clean the bullet format for consistent display
+        const cleanedProficiencies = sections.technicalProficiencies
+          .replace(/^[•\-\*]\s*/gm, '• ')
+          .replace(/\s+•\s+/g, ' • ')
+          .trim();
+        lines.push(cleanedProficiencies);
+        console.log('[PDFATSTurbo] Added TECHNICAL PROFICIENCIES to PDF:', cleanedProficiencies.substring(0, 100));
       }
       
       return lines.join('\n');
@@ -339,9 +394,16 @@
       }
 
       // TECHNICAL PROFICIENCIES (CRITICAL: Include for PDF = Preview match)
+      // This section contains soft skills like collaboration, problem-solving
       if (sections.technicalProficiencies) {
         addSectionHeader('TECHNICAL PROFICIENCIES');
-        addText(sections.technicalProficiencies, false, false, fontSize.body);
+        // Format with bullets properly
+        const cleanedProficiencies = sections.technicalProficiencies
+          .replace(/^[•\-\*]\s*/gm, '• ')
+          .replace(/\s+•\s+/g, ' • ')
+          .trim();
+        addText(cleanedProficiencies, false, false, fontSize.body);
+        console.log('[PDFATSTurbo] Rendered TECHNICAL PROFICIENCIES in jsPDF:', cleanedProficiencies.substring(0, 100));
       }
 
       const base64 = doc.output('datauristring').split(',')[1];
