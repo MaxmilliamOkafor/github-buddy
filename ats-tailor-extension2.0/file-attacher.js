@@ -123,7 +123,13 @@
       console.log('[FileAttacher] 🎯 Platform:', isGreenhouse ? 'Greenhouse' : 'Generic ATS');
       console.log('[FileAttacher] 🔍 Scanning for existing file attachments...');
 
-      // STEP 1: Find ALL file attachment containers (CV and Cover Letter separately)
+      // STEP 1: Use Job Genni approach - Click remove buttons by section heading
+      const cvRemoved = this.clickRemoveFileButton('cv');
+      const coverRemoved = this.clickRemoveFileButton('cover');
+      if (cvRemoved) removed++;
+      if (coverRemoved) removed++;
+
+      // STEP 2: Find ALL file attachment containers (CV and Cover Letter separately)
       const fileContainers = this.findAllFileContainers();
       console.log(`[FileAttacher] Found ${fileContainers.length} file containers`);
 
@@ -132,7 +138,7 @@
         if (removed_here) removed++;
       }
 
-      // STEP 2: Greenhouse-specific removal (if on Greenhouse)
+      // STEP 3: Greenhouse-specific removal (if on Greenhouse)
       if (isGreenhouse) {
         for (const selector of this.GREENHOUSE_REMOVE_SELECTORS) {
           try {
@@ -146,7 +152,7 @@
         }
       }
 
-      // STEP 3: Generic remove buttons (all platforms)
+      // STEP 4: Generic remove buttons (all platforms)
       for (const selector of this.GENERIC_REMOVE_SELECTORS) {
         try {
           const buttons = document.querySelectorAll(selector);
@@ -159,7 +165,7 @@
         } catch (e) {}
       }
 
-      // STEP 4: Click × / x / X / ✕ text buttons near file inputs
+      // STEP 5: Click × / x / X / ✕ text buttons near file inputs
       const xButtons = document.querySelectorAll('button, [role="button"], span.close, a.close, span, a');
       for (const btn of xButtons) {
         const text = btn.textContent?.trim();
@@ -171,7 +177,7 @@
         }
       }
 
-      // STEP 5: Clear file inputs directly (DataTransfer method)
+      // STEP 6: Clear file inputs directly (DataTransfer method)
       const fileInputs = document.querySelectorAll('input[type="file"]');
       for (const input of fileInputs) {
         if (input.files && input.files.length > 0) {
@@ -185,7 +191,7 @@
         }
       }
 
-      // STEP 6: Greenhouse - Click "Remove" text links
+      // STEP 7: Greenhouse - Click "Remove" text links
       if (isGreenhouse) {
         const textLinks = document.querySelectorAll('a, span, div, button');
         for (const el of textLinks) {
@@ -200,6 +206,92 @@
 
       console.log(`[FileAttacher] 🗑️ Total removed: ${removed} existing files`);
       return removed;
+    },
+
+    // ============ JOB GENNI APPROACH: Click Remove Button by Section Heading ============
+    // Find and click the "X" remove button for existing file attachments (e.g., Greenhouse)
+    clickRemoveFileButton(type) {
+      const headingRegex = type === 'cv'
+        ? /(resume\s*\/?\s*cv|resume\b|\bcv\b)/i
+        : /(cover\s*letter)/i;
+
+      // Find sections with the appropriate heading
+      const nodes = Array.from(document.querySelectorAll('label, h1, h2, h3, h4, h5, p, span, div, fieldset'));
+
+      for (const node of nodes) {
+        const text = (node.textContent || '').trim();
+        if (!text || text.length > 100) continue;
+        if (!headingRegex.test(text)) continue;
+
+        // Avoid cross-matching
+        if (type === 'cv' && /cover\s*letter/i.test(text)) continue;
+        if (type === 'cover' && /(resume\s*\/?\s*cv|resume\b|\bcv\b)/i.test(text)) continue;
+
+        const container = node.closest('fieldset, section, form, [role="group"], div') || node.parentElement;
+        if (!container) continue;
+
+        // Look for remove/delete/X buttons in this section
+        const removeButtons = container.querySelectorAll('button, a, span, div[role="button"], [class*="remove"], [class*="delete"]');
+
+        for (const btn of removeButtons) {
+          const btnText = (btn.textContent || '').trim().toLowerCase();
+          const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+          const title = (btn.getAttribute('title') || '').toLowerCase();
+          const className = (btn.className || '').toLowerCase();
+
+          // Check if it's a remove/delete/X button
+          const isRemoveBtn =
+            btnText === 'x' ||
+            btnText === '×' ||
+            btnText === '✕' ||
+            btnText === '✖' ||
+            btnText === 'remove' ||
+            btnText === 'delete' ||
+            btnText.includes('remove') ||
+            ariaLabel.includes('remove') ||
+            ariaLabel.includes('delete') ||
+            title.includes('remove') ||
+            title.includes('delete') ||
+            className.includes('remove') ||
+            className.includes('delete') ||
+            className.includes('close') ||
+            (btn.tagName === 'BUTTON' && btnText.length <= 2); // Short button text like "X"
+
+          if (isRemoveBtn && btn.offsetParent !== null) {
+            console.log(`[FileAttacher] Found remove button for ${type}:`, btnText || ariaLabel || 'X button');
+            try {
+              btn.click();
+              console.log(`[FileAttacher] ✅ Clicked remove button for ${type}`);
+              return true;
+            } catch (e) {
+              console.warn('[FileAttacher] Failed to click remove button:', e);
+            }
+          }
+        }
+
+        // Also look for SVG close icons (common pattern)
+        const svgCloseIcons = container.querySelectorAll('svg');
+        for (const svg of svgCloseIcons) {
+          const parent = svg.closest('button, a, span, div[role="button"]');
+          if (parent && parent.offsetParent !== null) {
+            const parentText = (parent.textContent || '').trim();
+            // If SVG's parent is clickable and has minimal text (likely an icon button)
+            if (parentText.length <= 3) {
+              console.log(`[FileAttacher] Found SVG close icon for ${type}`);
+              try {
+                parent.click();
+                console.log(`[FileAttacher] ✅ Clicked SVG remove button for ${type}`);
+                return true;
+              } catch (e) {
+                console.warn('[FileAttacher] Failed to click SVG remove button:', e);
+              }
+            }
+          }
+        }
+      }
+
+      console.log(`[FileAttacher] No remove button found for ${type}`);
+      return false;
     },
 
     // Find all file upload containers on the page

@@ -1117,7 +1117,9 @@
 
     const selectors = [
       'button[aria-label*="remove" i]',
+      'button[aria-label*="Remove" i]',
       'button[aria-label*="delete" i]',
+      'button[aria-label*="Delete" i]',
       'button[aria-label*="clear" i]',
       '.remove-file',
       '[data-qa-remove]',
@@ -1126,6 +1128,9 @@
       '.file-preview button',
       '.file-upload-remove',
       '.attachment-remove',
+      '[class*="remove"]',
+      '[class*="delete"]',
+      '[class*="clear-file"]',
     ];
 
     document.querySelectorAll(selectors.join(', ')).forEach((btn) => {
@@ -1135,15 +1140,129 @@
       } catch {}
     });
 
-    document.querySelectorAll('button, [role="button"]').forEach((btn) => {
+    // Also target X/× buttons
+    document.querySelectorAll('button, [role="button"], span, a, div').forEach((btn) => {
       const text = btn.textContent?.trim();
-      if (text === '×' || text === 'x' || text === 'X' || text === '✕') {
+      if (text === '×' || text === 'x' || text === 'X' || text === '✕' || text === '✖' || text === '✗') {
         try {
           if (!isNearFileInput(btn)) return;
           btn.click();
         } catch {}
       }
     });
+  }
+
+  // ============ CLICK REMOVE FILE BUTTON (Job Genni approach) ============
+  // Find and click the "X" remove button for existing file attachments (e.g., Greenhouse)
+  function clickRemoveFileButton(type) {
+    const headingRegex = type === 'cv'
+      ? /(resume\s*\/?\s*cv|resume\b|\bcv\b)/i
+      : /(cover\s*letter)/i;
+
+    // Find sections with the appropriate heading
+    const nodes = Array.from(document.querySelectorAll('label, h1, h2, h3, h4, h5, p, span, div, fieldset'));
+
+    for (const node of nodes) {
+      const text = (node.textContent || '').trim();
+      if (!text || text.length > 100) continue;
+      if (!headingRegex.test(text)) continue;
+
+      // Avoid cross-matching
+      if (type === 'cv' && /cover\s*letter/i.test(text)) continue;
+      if (type === 'cover' && /(resume\s*\/?\s*cv|resume\b|\bcv\b)/i.test(text)) continue;
+
+      const container = node.closest('fieldset, section, form, [role="group"], div') || node.parentElement;
+      if (!container) continue;
+
+      // Look for remove/delete/X buttons in this section
+      const removeButtons = container.querySelectorAll('button, a, span, div[role="button"], [class*="remove"], [class*="delete"]');
+
+      for (const btn of removeButtons) {
+        const btnText = (btn.textContent || '').trim().toLowerCase();
+        const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase();
+        const title = (btn.getAttribute('title') || '').toLowerCase();
+        const className = (btn.className || '').toLowerCase();
+
+        // Check if it's a remove/delete/X button
+        const isRemoveBtn =
+          btnText === 'x' ||
+          btnText === '×' ||
+          btnText === '✕' ||
+          btnText === '✖' ||
+          btnText === 'remove' ||
+          btnText === 'delete' ||
+          btnText.includes('remove') ||
+          ariaLabel.includes('remove') ||
+          ariaLabel.includes('delete') ||
+          title.includes('remove') ||
+          title.includes('delete') ||
+          className.includes('remove') ||
+          className.includes('delete') ||
+          className.includes('close') ||
+          (btn.tagName === 'BUTTON' && btnText.length <= 2); // Short button text like "X"
+
+        if (isRemoveBtn) {
+          console.log(`[ATS Tailor] Found remove button for ${type}:`, btnText || ariaLabel || 'X button');
+          try {
+            btn.click();
+            console.log(`[ATS Tailor] Clicked remove button for ${type}`);
+            return true;
+          } catch (e) {
+            console.warn('[ATS Tailor] Failed to click remove button:', e);
+          }
+        }
+      }
+
+      // Also look for SVG close icons (common pattern)
+      const svgCloseIcons = container.querySelectorAll('svg');
+      for (const svg of svgCloseIcons) {
+        const parent = svg.closest('button, a, span, div[role="button"]');
+        if (parent) {
+          const parentText = (parent.textContent || '').trim();
+          // If SVG's parent is clickable and has minimal text (likely an icon button)
+          if (parentText.length <= 3) {
+            console.log(`[ATS Tailor] Found SVG close icon for ${type}`);
+            try {
+              parent.click();
+              console.log(`[ATS Tailor] Clicked SVG remove button for ${type}`);
+              return true;
+            } catch (e) {
+              console.warn('[ATS Tailor] Failed to click SVG remove button:', e);
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`[ATS Tailor] No remove button found for ${type}`);
+    return false;
+  }
+
+  // ============ CLEAR FILE INPUT ============
+  function clearFileInput(input) {
+    try {
+      const dt = new DataTransfer();
+      input.files = dt.files;
+      fireEvents(input);
+      console.log('[ATS Tailor] Cleared file input');
+    } catch (e) {
+      console.warn('[ATS Tailor] Failed to clear file input:', e);
+    }
+  }
+
+  // ============ ATTACH FILE TO INPUT ============
+  function attachFileToInput(input, file) {
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+      fireEvents(input);
+      console.log(`[ATS Tailor] Attached file: ${file.name}`);
+      return true;
+    } catch (e) {
+      console.error('[ATS Tailor] Failed to attach file:', e);
+      return false;
+    }
   }
 
   // ============ FORCE CV REPLACE ============
@@ -1154,10 +1273,17 @@
     document.querySelectorAll('input[type="file"]').forEach((input) => {
       if (!isCVField(input)) return;
 
-      // If already attached, do nothing (prevents flicker)
-      if (input.files && input.files.length > 0) {
+      // If already attached with our file, skip (prevents flicker)
+      if (input.files && input.files.length > 0 && input.files[0].name === cvFile.name) {
         attached = true;
         return;
+      }
+
+      // CRITICAL FIX: Click X button to remove existing file FIRST (Job Genni approach)
+      if (input.files && input.files.length > 0) {
+        console.log('[ATS Tailor] Existing CV file detected, attempting to remove...');
+        clickRemoveFileButton('cv');
+        clearFileInput(input);
       }
 
       const dt = new DataTransfer();
@@ -1180,10 +1306,17 @@
       document.querySelectorAll('input[type="file"]').forEach((input) => {
         if (!isCoverField(input)) return;
 
-        // If already attached, do nothing (prevents flicker)
-        if (input.files && input.files.length > 0) {
+        // If already attached with our file, skip (prevents flicker)
+        if (input.files && input.files.length > 0 && input.files[0].name === coverFile.name) {
           attached = true;
           return;
+        }
+
+        // CRITICAL FIX: Click X button to remove existing file FIRST (Job Genni approach)
+        if (input.files && input.files.length > 0) {
+          console.log('[ATS Tailor] Existing cover file detected, attempting to remove...');
+          clickRemoveFileButton('cover');
+          clearFileInput(input);
         }
 
         const dt = new DataTransfer();
@@ -1215,6 +1348,10 @@
 
   // ============ FORCE EVERYTHING ============
   function forceEverything() {
+    // STEP 0: CRITICAL - Kill X buttons to remove existing attachments first (Job Genni approach)
+    clickRemoveFileButton('cv');
+    clickRemoveFileButton('cover');
+    
     // STEP 1: Greenhouse specific - click attach buttons to reveal hidden inputs
     document.querySelectorAll('[data-qa-upload], [data-qa="upload"], [data-qa="attach"]').forEach(btn => {
       const parent = btn.closest('.field') || btn.closest('[class*="upload"]') || btn.parentElement;
@@ -1350,11 +1487,12 @@
       updateBanner(`Tailoring for: ${jobInfo.title}`, 'working');
       
       // Send message to popup to trigger the "Extract & Apply Keywords to CV" button
-      // This creates a visible pressed/loading state in the popup
+      // This creates a visible pressed/loading state in the popup with animation
       return new Promise((resolve, reject) => {
         chrome.runtime.sendMessage({
           action: 'TRIGGER_EXTRACT_APPLY',
-          jobInfo: jobInfo
+          jobInfo: jobInfo,
+          showButtonAnimation: true // Request visible button click animation
         }, (response) => {
           if (chrome.runtime.lastError) {
             console.log('[ATS Tailor] Popup not open, falling back to direct API call');

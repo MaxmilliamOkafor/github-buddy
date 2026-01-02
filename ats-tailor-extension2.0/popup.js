@@ -215,8 +215,8 @@ class ATSTailor {
     // Listen for runtime messages to trigger Extract & Apply Keywords button
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.action === 'TRIGGER_EXTRACT_APPLY' || message.action === 'POPUP_TRIGGER_EXTRACT_APPLY') {
-        console.log('[ATS Tailor Popup] Received trigger message:', message.action);
-        this.triggerExtractApplyWithUI(message.jobInfo);
+        console.log('[ATS Tailor Popup] Received trigger message:', message.action, 'with animation:', message.showButtonAnimation);
+        this.triggerExtractApplyWithUI(message.jobInfo, message.showButtonAnimation !== false);
         sendResponse({ status: 'triggered' });
         return true;
       }
@@ -261,23 +261,42 @@ class ATSTailor {
    * Trigger Extract & Apply Keywords button with visible pressed/loading state
    * Called via runtime messaging from content.js automation
    */
-  async triggerExtractApplyWithUI(jobInfo) {
+  async triggerExtractApplyWithUI(jobInfo, showAnimation = true) {
     const btn = document.getElementById('tailorBtn');
     if (!btn) {
       console.warn('[ATS Tailor Popup] tailorBtn not found');
       return;
     }
     
-    // Show pressed/loading state with visual feedback
-    btn.classList.add('pressed', 'loading');
-    btn.disabled = true;
-    btn.style.transform = 'scale(0.98)';
-    btn.style.boxShadow = 'inset 0 2px 8px rgba(0,0,0,0.3)';
+    // Show pressed/loading state with VISIBLE animation
+    if (showAnimation) {
+      btn.classList.add('pressed', 'loading', 'btn-animating');
+      btn.disabled = true;
+      
+      // Animate the button press visually
+      btn.style.transform = 'scale(0.95)';
+      btn.style.boxShadow = 'inset 0 4px 12px rgba(0,0,0,0.4)';
+      btn.style.background = 'linear-gradient(135deg, #ff6b35, #f7931e)';
+      btn.style.transition = 'all 0.15s ease-in-out';
+      
+      // Flash effect
+      setTimeout(() => {
+        btn.style.transform = 'scale(0.98)';
+        btn.style.boxShadow = 'inset 0 2px 8px rgba(0,0,0,0.3), 0 0 20px rgba(247, 147, 30, 0.5)';
+      }, 100);
+    }
     
     const btnText = btn.querySelector('.btn-text');
+    const btnIcon = btn.querySelector('.btn-icon');
     const originalText = btnText?.textContent || 'Extract & Apply Keywords to CV';
+    const originalIcon = btnIcon?.textContent || '🚀';
+    
     if (btnText) {
       btnText.textContent = '⚡ Processing...';
+    }
+    if (btnIcon) {
+      btnIcon.textContent = '⏳';
+      btnIcon.style.animation = 'spin 1s linear infinite';
     }
     
     // If jobInfo provided, update current job
@@ -290,18 +309,46 @@ class ATSTailor {
       // Run the same tailorDocuments handler
       await this.tailorDocuments({ force: true });
       
+      // Success animation
+      if (showAnimation) {
+        btn.style.background = 'linear-gradient(135deg, #00c853, #69f0ae)';
+        btn.style.transform = 'scale(1.02)';
+        btn.style.boxShadow = '0 4px 20px rgba(0, 200, 83, 0.4)';
+        if (btnIcon) btnIcon.textContent = '✅';
+        if (btnText) btnText.textContent = 'Complete!';
+        
+        setTimeout(() => {
+          btn.style.background = '';
+          btn.style.transform = '';
+          btn.style.boxShadow = '';
+        }, 2000);
+      }
+      
       // Notify background that extraction is complete
       chrome.runtime.sendMessage({ action: 'EXTRACT_APPLY_COMPLETE' }).catch(() => {});
       
+    } catch (error) {
+      // Error animation
+      if (showAnimation) {
+        btn.style.background = 'linear-gradient(135deg, #ff1744, #ff5252)';
+        if (btnIcon) btnIcon.textContent = '❌';
+        if (btnText) btnText.textContent = 'Error!';
+      }
     } finally {
       // Remove pressed/loading state after completion
-      btn.classList.remove('pressed', 'loading');
-      btn.disabled = false;
-      btn.style.transform = '';
-      btn.style.boxShadow = '';
-      if (btnText) {
-        btnText.textContent = originalText;
-      }
+      setTimeout(() => {
+        btn.classList.remove('pressed', 'loading', 'btn-animating');
+        btn.disabled = false;
+        btn.style.transform = '';
+        btn.style.boxShadow = '';
+        btn.style.background = '';
+        btn.style.transition = '';
+        if (btnText) btnText.textContent = originalText;
+        if (btnIcon) {
+          btnIcon.textContent = originalIcon;
+          btnIcon.style.animation = '';
+        }
+      }, showAnimation ? 2500 : 0);
     }
   }
 
