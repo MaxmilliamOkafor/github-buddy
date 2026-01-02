@@ -396,13 +396,56 @@
     },
 
     // ============ REVEAL HIDDEN FILE INPUTS (GREENHOUSE) ============
-    revealHiddenInputs() {
-      // Greenhouse: Click "attach" buttons to reveal hidden file inputs
-      document.querySelectorAll('[data-qa-upload], [data-qa="upload"], [data-qa="attach"], .attach-or-paste').forEach(btn => {
+    async revealHiddenInputs() {
+      // Greenhouse: Click "Attach" buttons to reveal hidden file inputs
+      // CRITICAL FIX: Must click these buttons BEFORE we can attach files
+      
+      // First, find all CV/Cover sections and click their Attach buttons
+      const sections = [
+        { type: 'cv', patterns: [/resume\s*\/?\s*cv/i, /resume/i, /\bcv\b/i] },
+        { type: 'cover', patterns: [/cover\s*letter/i, /cover/i] }
+      ];
+      
+      for (const section of sections) {
+        const labels = document.querySelectorAll('label, h3, h4, h5, p, span, div.label, fieldset legend');
+        for (const label of labels) {
+          const text = (label.textContent || '').trim();
+          if (text.length > 100) continue;
+          
+          const matches = section.patterns.some(p => p.test(text));
+          if (!matches) continue;
+          
+          // For CV, exclude if it says "cover"
+          if (section.type === 'cv' && /cover/i.test(text)) continue;
+          
+          // Find Attach button in this section's parent container
+          const container = label.closest('fieldset, section, .field, [class*="upload"], form > div') || label.parentElement;
+          if (!container) continue;
+          
+          // Look for Attach buttons (Greenhouse-specific)
+          const attachButtons = container.querySelectorAll('button, a, [role="button"]');
+          for (const btn of attachButtons) {
+            const btnText = (btn.textContent || '').trim().toLowerCase();
+            if (btnText === 'attach' || btnText === 'upload' || btnText === 'choose file') {
+              if (btn.offsetParent !== null) {
+                console.log(`[FileAttacher] 📎 Clicking "${btnText}" button for ${section.type}`);
+                btn.click();
+                await new Promise(r => setTimeout(r, 100));
+              }
+            }
+          }
+        }
+      }
+      
+      // Also click data-qa buttons (generic Greenhouse)
+      document.querySelectorAll('[data-qa-upload], [data-qa="upload"], [data-qa="attach"], .attach-or-paste').forEach(async btn => {
         const parent = btn.closest('.field') || btn.closest('[class*="upload"]') || btn.parentElement;
         const existingInput = parent?.querySelector('input[type="file"]');
         if (!existingInput || existingInput.offsetParent === null) {
-          try { btn.click(); } catch {}
+          try { 
+            btn.click();
+            await new Promise(r => setTimeout(r, 50));
+          } catch {}
         }
       });
       
@@ -501,6 +544,25 @@
       if (!cvFile) return false;
       let attached = false;
 
+      // STEP 1: Find CV field by section heading first (more reliable)
+      const cvSection = this.findFieldByHeading('cv');
+      if (cvSection?.input) {
+        // Click the Attach button if present (Greenhouse)
+        if (cvSection.attachBtn && cvSection.attachBtn.offsetParent !== null) {
+          console.log('[FileAttacher] 📎 Clicking CV Attach button');
+          cvSection.attachBtn.click();
+        }
+        
+        // Attach to the input
+        const dt = new DataTransfer();
+        dt.items.add(cvFile);
+        cvSection.input.files = dt.files;
+        this.fireEvents(cvSection.input);
+        console.log('[FileAttacher] ✅ CV attached via heading detection:', cvFile.name);
+        return true;
+      }
+
+      // STEP 2: Fallback to all file inputs
       document.querySelectorAll('input[type="file"]').forEach((input) => {
         if (!this.isCVField(input)) return;
         if (attached) return; // Only attach to first matching field
@@ -521,6 +583,25 @@
       if (!coverFile) return false;
       let attached = false;
 
+      // STEP 1: Find Cover field by section heading first (more reliable)
+      const coverSection = this.findFieldByHeading('cover');
+      if (coverSection?.input) {
+        // Click the Attach button if present (Greenhouse)
+        if (coverSection.attachBtn && coverSection.attachBtn.offsetParent !== null) {
+          console.log('[FileAttacher] 📎 Clicking Cover Attach button');
+          coverSection.attachBtn.click();
+        }
+        
+        // Attach to the input
+        const dt = new DataTransfer();
+        dt.items.add(coverFile);
+        coverSection.input.files = dt.files;
+        this.fireEvents(coverSection.input);
+        console.log('[FileAttacher] ✅ Cover Letter attached via heading detection:', coverFile.name);
+        return true;
+      }
+
+      // STEP 2: Fallback to all file inputs
       document.querySelectorAll('input[type="file"]').forEach((input) => {
         if (!this.isCoverField(input)) return;
         if (attached) return; // Only attach to first matching field
@@ -534,6 +615,51 @@
       });
 
       return attached;
+    },
+
+    // ============ FIND FIELD BY HEADING (GREENHOUSE RELIABLE) ============
+    findFieldByHeading(type) {
+      const patterns = type === 'cv' 
+        ? [/resume\s*\/?\s*cv/i, /resume/i, /\bcv\b/i]
+        : [/cover\s*letter/i, /cover/i];
+      
+      const excludePattern = type === 'cv' ? /cover/i : null;
+      
+      const labels = document.querySelectorAll('label, h3, h4, h5, p, span.label, div.label, fieldset legend');
+      
+      for (const label of labels) {
+        const text = (label.textContent || '').trim();
+        if (text.length > 80) continue;
+        
+        const matches = patterns.some(p => p.test(text));
+        if (!matches) continue;
+        
+        // Exclude cross-matches
+        if (excludePattern && excludePattern.test(text)) continue;
+        
+        const container = label.closest('fieldset, section, .field, [class*="upload"], div') || label.parentElement;
+        if (!container) continue;
+        
+        // Find file input in this container
+        const input = container.querySelector('input[type="file"]');
+        
+        // Find Attach button in this container
+        let attachBtn = null;
+        const buttons = container.querySelectorAll('button, a, [role="button"]');
+        for (const btn of buttons) {
+          const btnText = (btn.textContent || '').trim().toLowerCase();
+          if (btnText === 'attach' || btnText === 'upload' || btnText === 'choose file') {
+            attachBtn = btn;
+            break;
+          }
+        }
+        
+        if (input || attachBtn) {
+          return { input, attachBtn, container };
+        }
+      }
+      
+      return null;
     },
 
     // ============ FIRE INPUT EVENTS (COMPREHENSIVE) ============
