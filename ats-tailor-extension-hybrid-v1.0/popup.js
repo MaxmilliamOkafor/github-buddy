@@ -1796,7 +1796,7 @@ class ATSTailor {
    */
   async regeneratePDFAfterBoost() {
     try {
-      console.log('[ATS Tailor] Regenerating PDF after boost...');
+      console.log('[ATS Tailor] Regenerating PDF after boost (OpenResume style)...');
       
       // Get tailored location from job data
       let tailoredLocation = 'Open to relocation';
@@ -1812,7 +1812,7 @@ class ATSTailor {
       try {
         if (this.session?.access_token && this.session?.user?.id) {
           const profileRes = await fetch(
-            `${SUPABASE_URL}/rest/v1/profiles?user_id=eq.${this.session.user.id}&select=first_name,last_name,email,phone,linkedin,github,portfolio`,
+            `${SUPABASE_URL}/rest/v1/profiles?user_id=eq.${this.session.user.id}&select=first_name,last_name,email,phone,linkedin,github,portfolio,work_experience,education,skills,certifications,ats_strategy`,
             {
               headers: {
                 apikey: SUPABASE_ANON_KEY,
@@ -1829,7 +1829,56 @@ class ATSTailor {
         console.warn('[ATS Tailor] Could not fetch profile for PDF regeneration:', e);
       }
 
-      // Generate new PDF using PDFATSPerfect if available
+      // PRIORITY 1: Use OpenResume Generator for perfect ATS PDFs
+      if (window.OpenResumeGenerator) {
+        console.log('[ATS Tailor] Using OpenResume Generator for ATS-perfect PDFs...');
+        
+        const atsPackage = await window.OpenResumeGenerator.generateATSPackage(
+          this.generatedDocuments.cv,
+          this.generatedDocuments.keywords || {},
+          {
+            title: this.currentJob?.title || '',
+            company: this.currentJob?.company || '',
+            location: tailoredLocation
+          },
+          {
+            firstName: candidateData.first_name,
+            lastName: candidateData.last_name,
+            email: candidateData.email || this.session?.user?.email,
+            phone: candidateData.phone,
+            linkedin: candidateData.linkedin,
+            github: candidateData.github,
+            portfolio: candidateData.portfolio,
+            workExperience: candidateData.work_experience,
+            education: candidateData.education,
+            skills: candidateData.skills,
+            certifications: candidateData.certifications,
+            summary: candidateData.ats_strategy,
+            city: tailoredLocation
+          }
+        );
+
+        if (atsPackage.cvBase64) {
+          this.generatedDocuments.cvPdf = atsPackage.cvBase64;
+          this.generatedDocuments.cvFileName = atsPackage.cvFilename;
+          this.generatedDocuments.tailoredLocation = tailoredLocation;
+          console.log('[ATS Tailor] ✅ OpenResume CV generated:', atsPackage.cvFilename);
+        }
+
+        if (atsPackage.coverBase64) {
+          this.generatedDocuments.coverPdf = atsPackage.coverBase64;
+          this.generatedDocuments.coverFileName = atsPackage.coverFilename;
+          console.log('[ATS Tailor] ✅ OpenResume Cover Letter generated:', atsPackage.coverFilename);
+        }
+
+        if (atsPackage.matchScore) {
+          this.generatedDocuments.matchScore = atsPackage.matchScore;
+        }
+
+        return;
+      }
+
+      // PRIORITY 2: Use PDFATSPerfect if available
       if (window.PDFATSPerfect) {
         const pdfResult = await window.PDFATSPerfect.regenerateAfterBoost({
           jobData: this.currentJob,
@@ -1851,13 +1900,16 @@ class ATSTailor {
           this.generatedDocuments.cvFileName = pdfResult.fileName;
           this.generatedDocuments.tailoredLocation = pdfResult.location;
           console.log('[ATS Tailor] PDF regenerated:', pdfResult.fileName);
+          return;
         } else if (pdfResult.requiresBackendGeneration) {
           await this.regeneratePDFViaBackend(pdfResult, tailoredLocation);
+          return;
         }
-      } else {
-        // Fallback: Call backend generate-pdf function
-        await this.regeneratePDFViaBackend(null, tailoredLocation);
       }
+      
+      // PRIORITY 3: Fallback to backend generation
+      await this.regeneratePDFViaBackend(null, tailoredLocation);
+      
     } catch (error) {
       console.error('[ATS Tailor] PDF regeneration failed:', error);
       // Don't throw - boost was successful, just PDF failed
