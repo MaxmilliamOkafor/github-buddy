@@ -1,8 +1,8 @@
-// content.js - HYBRID v1.3.0 - LazyApply 3X INSTANT Speed (≤175ms) + ALL 5.0 Features
-// MERGE: 4.0's proven file attach logic + 5.0's keyword extraction, tailoring, PDF generation
+// content.js - HYBRID v1.4.0 - OpenResume ATS CV + Cover Letter Generator
+// FEATURES: OpenResume-style perfect ATS format, 100% parsing, dual PDF generation
 // SPEED: INSTANT 175ms pipeline - 0ms detect → 25ms banner → 50ms AUTO-CLICK → 175ms complete
+// OUTPUT: {FirstName}_{LastName}_ATS_CV.pdf + {FirstName}_{LastName}_Cover_Letter.pdf
 // UNIQUE CV: Preserves user's companies/roles/dates, modifies only bullet phrasing per job
-// FIXED: Instant button trigger, removed localStorage resume-on-return
 
 (function() {
   'use strict';
@@ -18,8 +18,8 @@
   };
 
   const pipelineStart = performance.now();
-  console.log(`[ATS Tailor] HYBRID v1.3.0 LAZYAPPLY 3X INSTANT (175ms) loaded at ${pipelineStart.toFixed(0)}ms`);
-  console.log('[ATS Tailor] Features: INSTANT 50ms button click + 175ms pipeline + Unique CV');
+  console.log(`[ATS Tailor] HYBRID v1.4.0 OpenResume ATS Generator loaded at ${pipelineStart.toFixed(0)}ms`);
+  console.log('[ATS Tailor] Features: OpenResume ATS CV + Cover Letter + 175ms pipeline');
 
   // ============ CONFIGURATION ============
   const SUPABASE_URL = 'https://wntpldomgjutwufphnpg.supabase.co';
@@ -592,7 +592,7 @@
     console.log('[ATS Tailor] Auto-trigger message sent for:', jobInfo.title);
   }
 
-  // ============ AUTO-TAILOR DOCUMENTS (WITH 5.0 FEATURES) ============
+  // ============ AUTO-TAILOR DOCUMENTS (WITH OPENRESUME GENERATOR) ============
   async function autoTailorDocuments() {
     if (hasTriggeredTailor || tailoringInProgress) {
       console.log('[ATS Tailor] Already triggered or in progress, skipping');
@@ -615,7 +615,7 @@
     tailoringInProgress = true;
 
     createStatusBanner();
-    updateBanner('Generating tailored CV & Cover Letter...', 'working');
+    updateBanner('Generating OpenResume ATS CV + Cover Letter...', 'extracting');
 
     try {
       const session = await new Promise(resolve => {
@@ -655,76 +655,130 @@
       }
 
       console.log('[ATS Tailor] Job detected:', jobInfo.title, 'at', jobInfo.company);
-      updateBanner(`Tailoring for: ${jobInfo.title}...`, 'working');
+      updateBanner(`Extracting keywords from: ${jobInfo.title}...`, 'extracting');
 
+      // STEP 1: Extract keywords using TurboPipeline
       const localKeywords = await extractKeywordsLocally(jobInfo.description);
-      console.log('[ATS Tailor] Extracted keywords:', localKeywords.all?.slice(0, 10));
+      console.log('[ATS Tailor] Extracted keywords:', localKeywords.highPriority?.slice(0, 5));
+      
+      updateBanner(`Generating ATS CV (${localKeywords.all?.length || 0} keywords)...`, 'extracting');
 
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/tailor-application`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-          apikey: SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          jobTitle: jobInfo.title,
-          company: jobInfo.company,
-          location: jobInfo.location,
-          description: jobInfo.description,
-          requirements: [],
-          userProfile: {
-            firstName: p.first_name || '',
-            lastName: p.last_name || '',
-            email: p.email || session.user.email || '',
-            phone: p.phone || '',
-            linkedin: p.linkedin || '',
-            github: p.github || '',
-            portfolio: p.portfolio || '',
-            coverLetter: p.cover_letter || '',
-            workExperience: Array.isArray(p.work_experience) ? p.work_experience : [],
-            education: Array.isArray(p.education) ? p.education : [],
-            skills: Array.isArray(p.skills) ? p.skills : [],
-            certifications: Array.isArray(p.certifications) ? p.certifications : [],
-            achievements: Array.isArray(p.achievements) ? p.achievements : [],
-            atsStrategy: p.ats_strategy || '',
-            city: p.city || undefined,
-            country: p.country || undefined,
-            address: p.address || undefined,
-            state: p.state || undefined,
-            zipCode: p.zip_code || undefined,
+      // STEP 2: Build candidate data for OpenResume generator
+      const candidateData = {
+        firstName: p.first_name || '',
+        lastName: p.last_name || '',
+        email: p.email || session.user.email || '',
+        phone: p.phone || '',
+        linkedin: p.linkedin || '',
+        github: p.github || '',
+        portfolio: p.portfolio || '',
+        city: p.city || '',
+        location: p.city || '',
+        workExperience: Array.isArray(p.work_experience) ? p.work_experience : [],
+        education: Array.isArray(p.education) ? p.education : [],
+        skills: Array.isArray(p.skills) ? p.skills : [],
+        certifications: Array.isArray(p.certifications) ? p.certifications : [],
+        summary: p.ats_strategy || '',
+        coverLetter: p.cover_letter || ''
+      };
+
+      // STEP 3: Generate using OpenResume Generator (if available)
+      let cvResult = null;
+      let coverResult = null;
+      let matchScore = 0;
+      
+      if (typeof OpenResumeGenerator !== 'undefined') {
+        console.log('[ATS Tailor] Using OpenResume Generator for ATS-perfect PDFs');
+        
+        try {
+          const atsPackage = await OpenResumeGenerator.generateATSPackage(
+            candidateData.summary || buildBaseCV(candidateData),
+            localKeywords,
+            {
+              title: jobInfo.title,
+              company: jobInfo.company,
+              location: jobInfo.location
+            },
+            candidateData
+          );
+          
+          cvResult = {
+            pdf: atsPackage.cvBase64,
+            filename: atsPackage.cvFilename
+          };
+          
+          coverResult = {
+            pdf: atsPackage.coverBase64,
+            filename: atsPackage.coverFilename
+          };
+          
+          matchScore = atsPackage.matchScore;
+          
+          console.log(`[ATS Tailor] ✅ OpenResume generated: ${cvResult.filename}, ${coverResult.filename} (${matchScore}% match)`);
+        } catch (e) {
+          console.error('[ATS Tailor] OpenResume generation failed, falling back to Supabase:', e);
+        }
+      }
+      
+      // STEP 4: Fallback to Supabase edge function if OpenResume failed
+      if (!cvResult?.pdf) {
+        updateBanner(`Generating via cloud...`, 'working');
+        
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/tailor-application`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: SUPABASE_ANON_KEY,
           },
-        }),
-      });
+          body: JSON.stringify({
+            jobTitle: jobInfo.title,
+            company: jobInfo.company,
+            location: jobInfo.location,
+            description: jobInfo.description,
+            requirements: [],
+            userProfile: candidateData,
+          }),
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Tailoring failed');
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || 'Tailoring failed');
+        }
+
+        const result = await response.json();
+        if (result.error) throw new Error(result.error);
+
+        cvResult = {
+          pdf: result.resumePdf,
+          filename: result.cvFileName || `${candidateData.firstName}_${candidateData.lastName}_ATS_CV.pdf`
+        };
+        
+        coverResult = {
+          pdf: result.coverLetterPdf,
+          filename: result.coverLetterFileName || `${candidateData.firstName}_${candidateData.lastName}_Cover_Letter.pdf`
+        };
+        
+        matchScore = result.matchScore || 0;
       }
 
-      const result = await response.json();
-      if (result.error) throw new Error(result.error);
+      console.log('[ATS Tailor] Tailoring complete! Match score:', matchScore);
+      updateBanner(`✅ Generated! Match: ${matchScore}% - Attaching files...`, 'success');
 
-      console.log('[ATS Tailor] Tailoring complete! Match score:', result.matchScore);
-      updateBanner(`✅ Generated! Match: ${result.matchScore}% - Attaching files...`, 'success');
-
-      const fallbackName = `${(p.first_name || '').trim()}_${(p.last_name || '').trim()}`.replace(/\s+/g, '_') || 'Applicant';
-
+      // STEP 5: Store results
       await new Promise(resolve => {
         chrome.storage.local.set({
-          cvPDF: result.resumePdf,
-          coverPDF: result.coverLetterPdf,
-          coverLetterText: result.tailoredCoverLetter || result.coverLetter || '',
-          cvFileName: result.cvFileName || `${fallbackName}_CV.pdf`,
-          coverFileName: result.coverLetterFileName || `${fallbackName}_Cover_Letter.pdf`,
+          cvPDF: cvResult.pdf,
+          coverPDF: coverResult.pdf,
+          coverLetterText: '',
+          cvFileName: cvResult.filename,
+          coverFileName: coverResult.filename,
           ats_lastGeneratedDocuments: {
-            cv: result.tailoredResume,
-            coverLetter: result.tailoredCoverLetter || result.coverLetter,
-            cvPdf: result.resumePdf,
-            coverPdf: result.coverLetterPdf,
-            cvFileName: result.cvFileName || `${fallbackName}_CV.pdf`,
-            coverFileName: result.coverLetterFileName || `${fallbackName}_Cover_Letter.pdf`,
-            matchScore: result.matchScore || 0,
+            cvPdf: cvResult.pdf,
+            coverPdf: coverResult.pdf,
+            cvFileName: cvResult.filename,
+            coverFileName: coverResult.filename,
+            matchScore: matchScore,
           },
           ats_extracted_keywords: localKeywords,
         }, resolve);
@@ -737,7 +791,7 @@
 
       loadFilesAndStart();
 
-      updateBanner(`✅ Done! Match: ${result.matchScore}% - Files attached!`, 'success');
+      updateBanner(`✅ ${cvResult.filename} + ${coverResult.filename} attached! (${matchScore}% match)`, 'success');
 
     } catch (error) {
       console.error('[ATS Tailor] Auto-tailor error:', error);
@@ -745,6 +799,57 @@
     } finally {
       tailoringInProgress = false;
     }
+  }
+  
+  // ============ BUILD BASE CV TEXT FROM CANDIDATE DATA ============
+  function buildBaseCV(candidateData) {
+    const lines = [];
+    
+    lines.push(`${candidateData.firstName} ${candidateData.lastName}`);
+    lines.push([candidateData.phone, candidateData.email, candidateData.city].filter(Boolean).join(' | '));
+    lines.push([candidateData.linkedin, candidateData.github, candidateData.portfolio].filter(Boolean).join(' | '));
+    lines.push('');
+    
+    if (candidateData.summary) {
+      lines.push('PROFESSIONAL SUMMARY');
+      lines.push(candidateData.summary);
+      lines.push('');
+    }
+    
+    if (candidateData.workExperience?.length > 0) {
+      lines.push('WORK EXPERIENCE');
+      candidateData.workExperience.forEach(job => {
+        const header = [job.company, job.title, job.dates, job.location].filter(Boolean).join(' | ');
+        lines.push(header);
+        const bullets = job.bullets || job.achievements || job.responsibilities || [];
+        (Array.isArray(bullets) ? bullets : [bullets]).forEach(b => {
+          if (b) lines.push(`- ${b.replace(/^[-•*]\s*/, '')}`);
+        });
+        lines.push('');
+      });
+    }
+    
+    if (candidateData.education?.length > 0) {
+      lines.push('EDUCATION');
+      candidateData.education.forEach(edu => {
+        const line = [edu.institution, edu.degree, edu.dates, edu.gpa ? `GPA: ${edu.gpa}` : ''].filter(Boolean).join(' | ');
+        lines.push(line);
+      });
+      lines.push('');
+    }
+    
+    if (candidateData.skills?.length > 0) {
+      lines.push('SKILLS');
+      lines.push(candidateData.skills.join(', '));
+      lines.push('');
+    }
+    
+    if (candidateData.certifications?.length > 0) {
+      lines.push('CERTIFICATIONS');
+      lines.push(candidateData.certifications.join(', '));
+    }
+    
+    return lines.join('\n');
   }
 
   // ============ LOAD FILES AND START (4.0 TURBO TIMING) ==========

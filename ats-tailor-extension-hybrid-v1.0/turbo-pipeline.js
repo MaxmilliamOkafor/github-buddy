@@ -1,6 +1,7 @@
 // turbo-pipeline.js - LAZYAPPLY 3X ULTRA-FAST Pipeline (≤175ms total)
 // 50% FASTER: 350ms → 175ms for LazyApply 3X speed compatibility
 // FEATURES: URL-based caching, parallel processing, High Priority keyword distribution, Unique CV per job
+// INTEGRATED: OpenResume-style ATS PDF + Cover Letter generation
 
 (function(global) {
   'use strict';
@@ -10,6 +11,7 @@
     EXTRACT_KEYWORDS: 30,     // 30ms (cached: instant) - was 50ms
     TAILOR_CV: 50,            // 50ms - was 100ms
     GENERATE_PDF: 62,         // 62ms - was 100ms
+    GENERATE_COVER: 30,       // 30ms for cover letter
     ATTACH_FILES: 33,         // 33ms - was 50ms
     TOTAL: 175                // 175ms total - was 350ms
   };
@@ -425,13 +427,14 @@
   }
 
   // ============ COMPLETE TURBO PIPELINE (≤175ms total - LAZYAPPLY 3X) ============
+  // NOW WITH OPENRESUME-STYLE CV + COVER LETTER GENERATION
   async function executeTurboPipeline(jobInfo, candidateData, baseCV, options = {}) {
     const pipelineStart = performance.now();
     const timings = {};
     
     console.log('[TurboPipeline] ⚡ Starting 175ms LAZYAPPLY 3X pipeline for:', jobInfo?.title || 'Unknown Job');
     
-    // PHASE 1: Extract keywords (≤50ms, INSTANT if cached)
+    // PHASE 1: Extract keywords (≤30ms, INSTANT if cached)
     const extractStart = performance.now();
     const jdText = jobInfo?.description || '';
     const keywordsResult = await turboExtractKeywords(jdText, {
@@ -445,7 +448,7 @@
       return { success: false, error: 'No keywords extracted', timings };
     }
 
-    // PHASE 2: Tailor CV with High Priority distribution (≤100ms)
+    // PHASE 2: Tailor CV with High Priority distribution (≤50ms)
     const tailorStart = performance.now();
     const tailorResult = await turboTailorCV(baseCV, keywordsResult, { 
       targetScore: options.targetScore || 95 
@@ -469,7 +472,46 @@
     }
     timings.distribution = performance.now() - distStart;
 
-    // PDF + Attach handled by pdf-ats-turbo.js and file-attacher.js
+    // PHASE 4: Generate OpenResume-Style CV + Cover Letter PDFs
+    let cvPDF = null;
+    let coverPDF = null;
+    let matchScore = 0;
+
+    if (global.OpenResumeGenerator) {
+      try {
+        const pdfStart = performance.now();
+        const atsPackage = await global.OpenResumeGenerator.generateATSPackage(
+          finalCV,
+          keywordsResult,
+          {
+            title: jobInfo?.title || '',
+            company: jobInfo?.company || '',
+            location: jobInfo?.location || ''
+          },
+          candidateData
+        );
+        
+        cvPDF = {
+          blob: atsPackage.cv,
+          base64: atsPackage.cvBase64,
+          filename: atsPackage.cvFilename
+        };
+        
+        coverPDF = {
+          blob: atsPackage.cover,
+          base64: atsPackage.coverBase64,
+          filename: atsPackage.coverFilename
+        };
+        
+        matchScore = atsPackage.matchScore;
+        timings.pdfGeneration = performance.now() - pdfStart;
+        
+        console.log(`[TurboPipeline] ✅ OpenResume PDFs generated: CV=${atsPackage.cvFilename}, Cover=${atsPackage.coverFilename}`);
+      } catch (e) {
+        console.error('[TurboPipeline] OpenResume generation failed:', e);
+        timings.pdfGeneration = performance.now() - pdfStart;
+      }
+    }
 
     const totalTime = performance.now() - pipelineStart;
     timings.total = totalTime;
@@ -478,6 +520,7 @@
       Extraction: ${timings.extraction.toFixed(0)}ms ${keywordsResult.fromCache ? '(CACHED)' : ''}
       Tailoring: ${timings.tailoring.toFixed(0)}ms
       Distribution: ${timings.distribution.toFixed(0)}ms
+      PDF Gen: ${timings.pdfGeneration?.toFixed(0) || 'N/A'}ms
       Total: ${totalTime.toFixed(0)}ms (target: ${TIMING_TARGETS.TOTAL}ms)`);
 
     return {
@@ -490,7 +533,11 @@
       stats: tailorResult.stats,
       timings,
       fromCache: keywordsResult.fromCache,
-      meetsTarget: totalTime <= TIMING_TARGETS.TOTAL
+      meetsTarget: totalTime <= TIMING_TARGETS.TOTAL,
+      // OpenResume outputs
+      cvPDF,
+      coverPDF,
+      matchScore
     };
   }
 
