@@ -4,7 +4,40 @@
 const SUPABASE_URL = 'https://wntpldomgjutwufphnpg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndudHBsZG9tZ2p1dHd1ZnBobnBnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY2MDY0NDAsImV4cCI6MjA4MjE4MjQ0MH0.vOXBQIg6jghsAby2MA1GfE-MNTRZ9Ny1W2kfUHGUzNM';
 
-class BulkApplier {
+// ============ RETRY CONFIGURATION (Fixes 502 Bad Gateway errors) ============
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 8000,
+  retryableStatuses: [408, 429, 500, 502, 503, 504],
+};
+
+async function fetchWithRetry(url, options = {}, retries = RETRY_CONFIG.maxRetries) {
+  try {
+    const response = await fetch(url, options);
+    if (RETRY_CONFIG.retryableStatuses.includes(response.status) && retries > 0) {
+      const delay = Math.min(
+        RETRY_CONFIG.baseDelayMs * Math.pow(2, RETRY_CONFIG.maxRetries - retries),
+        RETRY_CONFIG.maxDelayMs
+      );
+      console.warn(`[Bulk Apply] Retrying after ${delay}ms (${retries} left, status: ${response.status})`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return fetchWithRetry(url, options, retries - 1);
+    }
+    return response;
+  } catch (error) {
+    if (retries > 0 && (error.name === 'TypeError' || error.message.includes('fetch'))) {
+      const delay = Math.min(
+        RETRY_CONFIG.baseDelayMs * Math.pow(2, RETRY_CONFIG.maxRetries - retries),
+        RETRY_CONFIG.maxDelayMs
+      );
+      console.warn(`[Bulk Apply] Network error, retrying after ${delay}ms:`, error.message);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return fetchWithRetry(url, options, retries - 1);
+    }
+    throw error;
+  }
+}
   constructor() {
     this.jobs = [];
     this.currentIndex = 0;
@@ -143,7 +176,7 @@ class BulkApplier {
         email = result.ats_session.user.email || '';
         // Try to get profile data
         try {
-          const profileRes = await fetch(
+          const profileRes = await fetchWithRetry(
             `${SUPABASE_URL}/rest/v1/profiles?user_id=eq.${result.ats_session.user.id}&select=first_name,last_name,email,phone`,
             {
               headers: {
