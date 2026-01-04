@@ -11,39 +11,62 @@
   const SUPABASE_URL = 'https://wntpldomgjutwufphnpg.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndudHBsZG9tZ2p1dHd1ZnBobnBnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY2MDY0NDAsImV4cCI6MjA4MjE4MjQ0MH0.vOXBQIg6jghsAby2MA1GfE-MNTRZ9Ny1W2kfUHGUzNM';
   
-  // ============ RETRY CONFIGURATION (Fixes 502 Bad Gateway errors) ============
+  // ============ RETRY CONFIGURATION (Fixes 502 Bad Gateway and network errors) ============
   const RETRY_CONFIG = {
-    maxRetries: 3,
-    baseDelayMs: 1000,
-    maxDelayMs: 8000,
-    retryableStatuses: [408, 429, 500, 502, 503, 504],
+    maxRetries: 4,           // More retries for content script
+    baseDelayMs: 1500,       // Longer initial delay
+    maxDelayMs: 12000,       // Longer max delay
+    retryableStatuses: [408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524],
   };
 
   /**
-   * Robust fetch with exponential backoff retry for 502/5xx errors
+   * Robust fetch with exponential backoff retry for 502/5xx and network errors
    */
   async function fetchWithRetry(url, options = {}, retries = RETRY_CONFIG.maxRetries) {
+    const endpoint = url.split('/').pop()?.split('?')[0] || 'unknown';
+    
     try {
-      const response = await fetch(url, options);
+      console.log(`[ATS Tailor] Fetching ${endpoint}... (${RETRY_CONFIG.maxRetries - retries + 1}/${RETRY_CONFIG.maxRetries + 1})`);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      
+      const response = await fetch(url, { 
+        ...options, 
+        signal: controller.signal 
+      });
+      
+      clearTimeout(timeoutId);
       
       if (RETRY_CONFIG.retryableStatuses.includes(response.status) && retries > 0) {
         const delay = Math.min(
           RETRY_CONFIG.baseDelayMs * Math.pow(2, RETRY_CONFIG.maxRetries - retries),
           RETRY_CONFIG.maxDelayMs
         );
-        console.warn(`[ATS Tailor] Retrying ${url.split('/').pop()} after ${delay}ms (${retries} left, status: ${response.status})`);
+        console.warn(`[ATS Tailor] ${endpoint} returned ${response.status}, retrying in ${delay}ms (${retries} left)`);
+        updateBanner(`Server busy, retrying in ${Math.round(delay/1000)}s...`, 'working');
         await new Promise(resolve => setTimeout(resolve, delay));
         return fetchWithRetry(url, options, retries - 1);
       }
       
       return response;
     } catch (error) {
-      if (retries > 0 && (error.name === 'TypeError' || error.message.includes('fetch'))) {
+      // Retry on network errors, timeouts, and abort errors
+      const isRetryable = retries > 0 && (
+        error.name === 'TypeError' || 
+        error.name === 'AbortError' ||
+        error.message?.includes('fetch') ||
+        error.message?.includes('network') ||
+        error.message?.includes('Failed to fetch')
+      );
+      
+      if (isRetryable) {
         const delay = Math.min(
           RETRY_CONFIG.baseDelayMs * Math.pow(2, RETRY_CONFIG.maxRetries - retries),
           RETRY_CONFIG.maxDelayMs
         );
-        console.warn(`[ATS Tailor] Network error, retrying after ${delay}ms:`, error.message);
+        console.warn(`[ATS Tailor] Network error for ${endpoint}, retrying in ${delay}ms:`, error.message);
+        updateBanner(`Network issue, retrying in ${Math.round(delay/1000)}s...`, 'working');
         await new Promise(resolve => setTimeout(resolve, delay));
         return fetchWithRetry(url, options, retries - 1);
       }
@@ -792,7 +815,25 @@
 
     } catch (error) {
       console.error('[ATS Tailor] Auto-tailor error:', error);
-      updateBanner(`Error: ${error.message}`, 'error');
+      
+      // Provide user-friendly error messages
+      let errorMsg = error.message || 'Unknown error';
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+        errorMsg = 'Network error - check your connection and try again';
+      } else if (errorMsg.includes('502') || errorMsg.includes('Bad Gateway')) {
+        errorMsg = 'Server busy - please try again in a moment';
+      } else if (errorMsg.includes('401') || errorMsg.includes('Unauthorized')) {
+        errorMsg = 'Session expired - please login again via popup';
+      } else if (errorMsg.includes('profile')) {
+        errorMsg = 'Profile not found - complete your profile in the app';
+      }
+      
+      updateBanner(`Error: ${errorMsg}`, 'error');
+      
+      // Don't auto-hide error banner - let user see it
+      setTimeout(() => {
+        updateBanner('Click extension icon to retry', 'error');
+      }, 5000);
     } finally {
       tailoringInProgress = false;
     }
