@@ -4,6 +4,52 @@
 const SUPABASE_URL = 'https://wntpldomgjutwufphnpg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndudHBsZG9tZ2p1dHd1ZnBobnBnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY2MDY0NDAsImV4cCI6MjA4MjE4MjQ0MH0.vOXBQIg6jghsAby2MA1GfE-MNTRZ9Ny1W2kfUHGUzNM';
 
+// ============ RETRY CONFIGURATION (Fixes 502 Bad Gateway errors) ============
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 8000,
+  retryableStatuses: [408, 429, 500, 502, 503, 504],
+};
+
+/**
+ * Robust fetch with exponential backoff retry for 502/5xx errors
+ * @param {string} url - The URL to fetch
+ * @param {RequestInit} options - Fetch options
+ * @param {number} retries - Number of retries remaining
+ * @returns {Promise<Response>} - The fetch response
+ */
+async function fetchWithRetry(url, options = {}, retries = RETRY_CONFIG.maxRetries) {
+  try {
+    const response = await fetch(url, options);
+    
+    // Check if response is retryable
+    if (RETRY_CONFIG.retryableStatuses.includes(response.status) && retries > 0) {
+      const delay = Math.min(
+        RETRY_CONFIG.baseDelayMs * Math.pow(2, RETRY_CONFIG.maxRetries - retries),
+        RETRY_CONFIG.maxDelayMs
+      );
+      console.warn(`[ATS Tailor] Retrying request to ${url.split('/').pop()} after ${delay}ms (${retries} retries left, status: ${response.status})`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return fetchWithRetry(url, options, retries - 1);
+    }
+    
+    return response;
+  } catch (error) {
+    // Network errors (not HTTP errors) are also retryable
+    if (retries > 0 && (error.name === 'TypeError' || error.message.includes('fetch'))) {
+      const delay = Math.min(
+        RETRY_CONFIG.baseDelayMs * Math.pow(2, RETRY_CONFIG.maxRetries - retries),
+        RETRY_CONFIG.maxDelayMs
+      );
+      console.warn(`[ATS Tailor] Network error, retrying after ${delay}ms:`, error.message);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return fetchWithRetry(url, options, retries - 1);
+    }
+    throw error;
+  }
+}
+
 // Supported ATS platforms (excluding Lever and Ashby)
 const SUPPORTED_HOSTS = [
   'greenhouse.io',
@@ -85,7 +131,7 @@ class ATSTailor {
     try {
       if (!this.session?.refresh_token || !this.session?.access_token) return;
 
-      const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      const res = await fetchWithRetry(`${SUPABASE_URL}/auth/v1/user`, {
         headers: {
           apikey: SUPABASE_ANON_KEY,
           Authorization: `Bearer ${this.session.access_token}`,
@@ -94,7 +140,7 @@ class ATSTailor {
 
       if (res.ok) return;
 
-      const refreshRes = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      const refreshRes = await fetchWithRetry(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -501,7 +547,7 @@ class ATSTailor {
 
     let candidateData = null;
     try {
-      const profileRes = await fetch(
+      const profileRes = await fetchWithRetry(
         `${SUPABASE_URL}/rest/v1/profiles?user_id=eq.${this.session.user.id}&select=*`,
         {
           headers: {
@@ -1245,8 +1291,8 @@ class ATSTailor {
         return;
       }
       
-      // Call the AI extraction endpoint
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/extract-keywords-ai`, {
+      // Call the AI extraction endpoint with retry
+      const response = await fetchWithRetry(`${SUPABASE_URL}/functions/v1/extract-keywords-ai`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1333,8 +1379,8 @@ class ATSTailor {
       throw new Error('No job description detected');
     }
     
-    // Call the AI extraction edge function
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/extract-keywords-ai`, {
+    // Call the AI extraction edge function with retry
+    const response = await fetchWithRetry(`${SUPABASE_URL}/functions/v1/extract-keywords-ai`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1728,8 +1774,8 @@ class ATSTailor {
       updateStep(2, 'working');
       updateProgress(20, 'Step 2/3: Loading profile & generating tailored CV...');
 
-      // Fetch user profile (API call)
-      const profileRes = await fetch(
+      // Fetch user profile (API call with retry)
+      const profileRes = await fetchWithRetry(
         `${SUPABASE_URL}/rest/v1/profiles?user_id=eq.${this.session.user.id}&select=first_name,last_name,email,phone,linkedin,github,portfolio,cover_letter,work_experience,education,skills,certifications,achievements,ats_strategy,city,country,address,state,zip_code`,
         {
           headers: {
@@ -1766,7 +1812,7 @@ class ATSTailor {
       // Update step text
       updateProgress(35, 'Step 2/3: AI generating tailored documents...');
 
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/tailor-application`, {
+      const response = await fetchWithRetry(`${SUPABASE_URL}/functions/v1/tailor-application`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2012,7 +2058,7 @@ class ATSTailor {
       let candidateData = {};
       try {
         if (this.session?.access_token && this.session?.user?.id) {
-          const profileRes = await fetch(
+          const profileRes = await fetchWithRetry(
             `${SUPABASE_URL}/rest/v1/profiles?user_id=eq.${this.session.user.id}&select=first_name,last_name,email,phone,linkedin,github,portfolio,work_experience,education,skills,certifications,ats_strategy`,
             {
               headers: {
@@ -2127,7 +2173,7 @@ class ATSTailor {
         return;
       }
 
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/generate-pdf`, {
+      const response = await fetchWithRetry(`${SUPABASE_URL}/functions/v1/generate-pdf`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
