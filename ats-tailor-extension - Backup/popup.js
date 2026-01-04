@@ -4,24 +4,37 @@
 const SUPABASE_URL = 'https://wntpldomgjutwufphnpg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndudHBsZG9tZ2p1dHd1ZnBobnBnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY2MDY0NDAsImV4cCI6MjA4MjE4MjQ0MH0.vOXBQIg6jghsAby2MA1GfE-MNTRZ9Ny1W2kfUHGUzNM';
 
-// ============ RETRY CONFIGURATION (Fixes 502 Bad Gateway errors) ============
+// ============ RETRY CONFIGURATION (Fixes 502 Bad Gateway and network errors) ============
 const RETRY_CONFIG = {
-  maxRetries: 3,
-  baseDelayMs: 1000,
-  maxDelayMs: 8000,
-  retryableStatuses: [408, 429, 500, 502, 503, 504],
+  maxRetries: 4,           // More retries
+  baseDelayMs: 1500,       // Longer initial delay
+  maxDelayMs: 12000,       // Longer max delay
+  retryableStatuses: [408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524],
 };
 
 /**
- * Robust fetch with exponential backoff retry for 502/5xx errors
+ * Robust fetch with exponential backoff retry for 502/5xx and network errors
  * @param {string} url - The URL to fetch
  * @param {RequestInit} options - Fetch options
  * @param {number} retries - Number of retries remaining
  * @returns {Promise<Response>} - The fetch response
  */
 async function fetchWithRetry(url, options = {}, retries = RETRY_CONFIG.maxRetries) {
+  const endpoint = url.split('/').pop()?.split('?')[0] || 'unknown';
+  
   try {
-    const response = await fetch(url, options);
+    console.log(`[ATS Tailor] Fetching ${endpoint}... (attempt ${RETRY_CONFIG.maxRetries - retries + 1}/${RETRY_CONFIG.maxRetries + 1})`);
+    
+    // Add timeout to prevent hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+    
+    const response = await fetch(url, { 
+      ...options, 
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
     
     // Check if response is retryable
     if (RETRY_CONFIG.retryableStatuses.includes(response.status) && retries > 0) {
@@ -29,20 +42,28 @@ async function fetchWithRetry(url, options = {}, retries = RETRY_CONFIG.maxRetri
         RETRY_CONFIG.baseDelayMs * Math.pow(2, RETRY_CONFIG.maxRetries - retries),
         RETRY_CONFIG.maxDelayMs
       );
-      console.warn(`[ATS Tailor] Retrying request to ${url.split('/').pop()} after ${delay}ms (${retries} retries left, status: ${response.status})`);
+      console.warn(`[ATS Tailor] ${endpoint} returned ${response.status}, retrying in ${delay}ms (${retries} retries left)`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchWithRetry(url, options, retries - 1);
     }
     
     return response;
   } catch (error) {
-    // Network errors (not HTTP errors) are also retryable
-    if (retries > 0 && (error.name === 'TypeError' || error.message.includes('fetch'))) {
+    // Retry on network errors, timeouts, and abort errors
+    const isRetryable = retries > 0 && (
+      error.name === 'TypeError' || 
+      error.name === 'AbortError' ||
+      error.message?.includes('fetch') ||
+      error.message?.includes('network') ||
+      error.message?.includes('Failed to fetch')
+    );
+    
+    if (isRetryable) {
       const delay = Math.min(
         RETRY_CONFIG.baseDelayMs * Math.pow(2, RETRY_CONFIG.maxRetries - retries),
         RETRY_CONFIG.maxDelayMs
       );
-      console.warn(`[ATS Tailor] Network error, retrying after ${delay}ms:`, error.message);
+      console.warn(`[ATS Tailor] Network error for ${endpoint}, retrying in ${delay}ms:`, error.message);
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchWithRetry(url, options, retries - 1);
     }
