@@ -112,10 +112,13 @@
     buildSummarySection(data, keywords) {
       let summary = data.summary || data.professionalSummary || data.profile || '';
       
+      // Ensure keywords is always an array
+      const keywordArray = Array.isArray(keywords) ? keywords : (keywords?.all || []);
+      
       // Inject top 5 keywords into summary if not present
-      if (summary && keywords.length > 0) {
+      if (summary && keywordArray.length > 0) {
         const summaryLower = summary.toLowerCase();
-        const toInject = keywords.slice(0, 5).filter(kw => !summaryLower.includes(kw.toLowerCase()));
+        const toInject = keywordArray.slice(0, 5).filter(kw => !summaryLower.includes(kw.toLowerCase()));
         
         if (toInject.length > 0) {
           const injection = `. Expertise includes ${toInject.join(', ')}`;
@@ -135,7 +138,9 @@
       const experience = data.workExperience || data.work_experience || [];
       if (!Array.isArray(experience) || experience.length === 0) return '';
 
-      const keywordSet = new Set(keywords.map(k => k.toLowerCase()));
+      // Ensure keywords is always an array
+      const keywordArray = Array.isArray(keywords) ? keywords : (keywords?.all || []);
+      const keywordSet = new Set(keywordArray.map(k => k.toLowerCase()));
       let keywordIndex = 0;
       const maxBulletsPerRole = 8;
 
@@ -156,8 +161,8 @@
           const toInject = [];
           
           // Find 1-2 keywords not in bullet
-          while (toInject.length < 2 && keywordIndex < keywords.length) {
-            const kw = keywords[keywordIndex];
+          while (toInject.length < 2 && keywordIndex < keywordArray.length) {
+            const kw = keywordArray[keywordIndex];
             if (!bulletLower.includes(kw.toLowerCase()) && !keywordSet.has(kw.toLowerCase())) {
               toInject.push(kw);
               keywordSet.add(kw.toLowerCase());
@@ -190,8 +195,11 @@
       const skills = data.skills || [];
       const skillSet = new Set(skills.map(s => s.toLowerCase()));
       
+      // Ensure keywords is always an array
+      const keywordArray = Array.isArray(keywords) ? keywords : (keywords?.all || []);
+      
       // Add keywords not already in skills
-      keywords.forEach(kw => {
+      keywordArray.forEach(kw => {
         if (!skillSet.has(kw.toLowerCase())) {
           skills.push(kw);
           skillSet.add(kw.toLowerCase());
@@ -227,7 +235,9 @@
 
     // ============ BUILD TECHNICAL PROFICIENCIES SECTION ============
     buildTechnicalProficienciesSection(keywords) {
-      if (!keywords || keywords.length === 0) return '';
+      // Ensure keywords is always an array
+      const keywordArray = Array.isArray(keywords) ? keywords : (keywords?.all || []);
+      if (!keywordArray || keywordArray.length === 0) return '';
       
       // Filter to technical keywords only (exclude soft skills)
       const softSkills = new Set([
@@ -235,7 +245,7 @@
         'initiative', 'ownership', 'passion', 'dedication', 'motivation'
       ]);
       
-      const technical = keywords.filter(kw => !softSkills.has(kw.toLowerCase()));
+      const technical = keywordArray.filter(kw => !softSkills.has(kw.toLowerCase()));
       
       if (technical.length === 0) return '';
       
