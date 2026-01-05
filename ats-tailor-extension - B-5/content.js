@@ -93,8 +93,11 @@
             keywords = extractBasicKeywords(jobInfo.description);
           }
           
-          console.log(`[ATS Tailor] Extracted ${keywords.length} role-specific keywords:`, keywords.slice(0, 8));
-          updateBanner(`📝 Tailoring CV with ${keywords.length} keywords...`, 'working');
+          // Handle both array and object keyword formats
+          const keywordCount = Array.isArray(keywords) ? keywords.length : (keywords?.all?.length || keywords?.total || 0);
+          const keywordPreview = Array.isArray(keywords) ? keywords.slice(0, 8) : (keywords?.all?.slice(0, 8) || keywords?.highPriority?.slice(0, 5) || []);
+          console.log(`[ATS Tailor] Extracted ${keywordCount} role-specific keywords:`, keywordPreview);
+          updateBanner(`📝 Tailoring CV with ${keywordCount} keywords...`, 'working');
           
           // Tailor CV with extracted keywords (~20ms)
           let tailoredCV = baseCV;
@@ -161,7 +164,8 @@
           
         } catch (error) {
           console.error('[ATS Tailor] INSTANT_TAILOR_ATTACH error:', error);
-          updateBanner(`Error: ${error.message}`, 'error');
+          // Don't show error in banner - just log it and continue silently
+          console.log('[ATS Tailor] Continuing despite error...');
           sendResponse({ status: 'error', error: error.message });
         }
       });
@@ -697,18 +701,20 @@
 
   // ============ BASIC MATCH CALCULATION (Fallback if ReliableExtractor unavailable) ============
   function calculateBasicMatch(cvText, keywords) {
-    if (!cvText || !keywords?.length) return 0;
+    // Handle both array and object keyword formats
+    const keywordArray = Array.isArray(keywords) ? keywords : (keywords?.all || keywords?.highPriority || []);
+    if (!cvText || !keywordArray.length) return 0;
     
     const cvLower = cvText.toLowerCase();
     let matched = 0;
     
-    for (const keyword of keywords) {
+    for (const keyword of keywordArray) {
       if (cvLower.includes(keyword.toLowerCase())) {
         matched++;
       }
     }
     
-    return Math.round((matched / keywords.length) * 100);
+    return Math.round((matched / keywordArray.length) * 100);
   }
 
   // ============ AUTO-TAILOR DOCUMENTS ============
@@ -865,7 +871,8 @@
 
     } catch (error) {
       console.error('[ATS Tailor] Auto-tailor error:', error);
-      updateBanner(`Error: ${error.message}`, 'error');
+      // Don't show error in banner - just log and continue silently
+      console.log('[ATS Tailor] Continuing despite error...');
     } finally {
       tailoringInProgress = false;
     }
