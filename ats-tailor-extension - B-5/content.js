@@ -97,7 +97,7 @@
           const keywordCount = Array.isArray(keywords) ? keywords.length : (keywords?.all?.length || keywords?.total || 0);
           const keywordPreview = Array.isArray(keywords) ? keywords.slice(0, 8) : (keywords?.all?.slice(0, 8) || keywords?.highPriority?.slice(0, 5) || []);
           console.log(`[ATS Tailor] Extracted ${keywordCount} role-specific keywords:`, keywordPreview);
-          updateBanner(`📝 Tailoring CV with ${keywordCount} keywords...`, 'working');
+          updateBanner('📝 Tailoring CV with all keywords...', 'working');
           
           // Tailor CV with extracted keywords (~20ms)
           let tailoredCV = baseCV;
