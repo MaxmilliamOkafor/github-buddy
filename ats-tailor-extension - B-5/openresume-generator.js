@@ -829,7 +829,7 @@
       
       const para1 = `I am excited to apply for the ${jobTitle} position at ${company}. With ${years} years of experience leading ${kw1} and ${kw2} initiatives, I consistently deliver measurable business impact through innovative technical solutions and cross-functional collaboration.`;
       addText(para1, false, font.body);
-      y += 8;
+      y += 18; // Proper paragraph spacing
 
       // === PARAGRAPH 2: Proof + Keywords ===
       const kw3 = highPriority[2] || 'project delivery';
@@ -838,14 +838,14 @@
 
       const para2 = `At ${topExp}, I led ${kw3} implementations that resulted in ${this.extractAchievement(topBullet)}. I have extensive experience mentoring cross-functional teams and applying ${kw4} methodologies to deliver complex projects on time and within budget.`;
       addText(para2, false, font.body);
-      y += 8;
+      y += 18; // Proper paragraph spacing
 
       // === PARAGRAPH 3: Call to Action ===
       const kw5 = highPriority[4] || 'technical leadership';
       
       const para3 = `I would welcome the opportunity to discuss how my ${kw5} expertise can contribute to ${company}'s continued success. Thank you for considering my application. I look forward to the possibility of contributing to your team.`;
       addText(para3, false, font.body);
-      y += 16;
+      y += 20; // Extra spacing before closing
 
       // === CLOSING ===
       addText('Sincerely,', false, font.body);
