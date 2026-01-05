@@ -812,14 +812,12 @@
       addText(today, false, font.body);
       y += 8;
 
-      // === RECIPIENT ===
-      addText('Hiring Team', true, font.body);
-      addText(company, false, font.body);
-      if (jobData?.location) addText(jobData.location, false, font.body);
-      y += 12;
+      // === SUBJECT LINE ===
+      addText(`Re: ${jobTitle}`, true, font.body);
+      y += 8;
 
       // === SALUTATION ===
-      addText('Dear Hiring Manager,', false, font.body);
+      addText('Dear Hiring Committee,', false, font.body);
       y += 8;
 
       // === PARAGRAPH 1: Interest + Keywords ===
